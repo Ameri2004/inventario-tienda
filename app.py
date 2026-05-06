@@ -1,11 +1,17 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+import os # Importamos os para leer las variables de entorno de Render
 
 app = Flask(__name__)
 
-# Configuración de base de datos para Bolivia (UAB)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:orly123@localhost:5432/tienda_uab_v3?client_encoding=utf8'
+# --- CONFIGURACIÓN DE BASE DE DATOS (REEMPLAZADA) ---
+# Si existe la variable 'DATABASE_URL' (en Render), la usa. 
+# Si no, usa tu base de datos local de PostgreSQL.
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'DATABASE_URL', 
+    'postgresql://postgres:orly123@localhost:5432/tienda_uab_v3'
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.secret_key = 'clave_secreta_orly_2026' 
 
@@ -72,7 +78,6 @@ def logout():
 
 @app.route('/')
 def index():
-    # VERIFICACIÓN DE SESIÓN: Si no hay usuario, manda al login
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
@@ -110,4 +115,6 @@ def imprimir(venta_id):
     return render_template('factura.html', venta=v)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8000)
+    # Usamos el puerto que Render nos asigne, o el 8000 por defecto
+    port = int(os.environ.get('PORT', 8000))
+    app.run(host='0.0.0.0', port=port, debug=False)
