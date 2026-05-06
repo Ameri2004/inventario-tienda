@@ -1,13 +1,12 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
-import os # Importamos os para leer las variables de entorno de Render
+import os
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN DE BASE DE DATOS (REEMPLAZADA) ---
-# Si existe la variable 'DATABASE_URL' (en Render), la usa. 
-# Si no, usa tu base de datos local de PostgreSQL.
+# --- CONFIGURACIÓN DE BASE DE DATOS ---
+# Prioriza la URL de Render (DATABASE_URL), si no existe usa la local de Bolivia
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL', 
     'postgresql://postgres:orly123@localhost:5432/tienda_uab_v3'
@@ -43,12 +42,17 @@ class Venta(db.Model):
     total = db.Column(db.Numeric(10, 2), nullable=False)
     cliente_nombre = db.Column(db.String(150))
 
-# Crear tablas y usuario administrador inicial
+# --- INICIALIZACIÓN AUTOMÁTICA DE LA BASE DE DATOS ---
 with app.app_context():
     db.create_all()
-    if not Usuario.query.filter_by(username='admin').first():
+    # Verificamos si el admin existe para crearlo en la nube
+    admin_check = Usuario.query.filter_by(username='admin').first()
+    if not admin_check:
         db.session.add(Usuario(username='admin', password='orly123'))
         db.session.commit()
+        print(">>> Usuario admin creado correctamente en la base de datos.")
+    else:
+        print(">>> El usuario admin ya existe, listo para loguear.")
 
 # ─────────────────────────────────────────
 #  RUTAS DE ACCESO (LOGIN)
@@ -64,7 +68,8 @@ def login():
             session['user_id'] = user.id
             session['username'] = user.username
             return redirect(url_for('index'))
-        flash('Credenciales incorrectas', 'danger')
+        else:
+            flash('Usuario o contraseña incorrectos', 'danger')
     return render_template('login.html')
 
 @app.route('/logout')
@@ -90,14 +95,18 @@ def index():
 @app.route('/registrar', methods=['POST'])
 def registrar():
     if 'user_id' not in session: return redirect(url_for('login'))
-    nuevo = Producto(
-        codigo=request.form.get('codigo'),
-        nombre=request.form.get('nombre'),
-        precio_docena=float(request.form.get('precio')),
-        stock_unidades=int(request.form.get('stock'))
-    )
-    db.session.add(nuevo)
-    db.session.commit()
+    try:
+        nuevo = Producto(
+            codigo=request.form.get('codigo'),
+            nombre=request.form.get('nombre'),
+            precio_docena=float(request.form.get('precio')),
+            stock_unidades=int(request.form.get('stock'))
+        )
+        db.session.add(nuevo)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash('Error al registrar: El código ya existe o datos inválidos', 'danger')
     return redirect(url_for('index'))
 
 @app.route('/eliminar_producto/<int:id>', methods=['POST'])
@@ -115,6 +124,6 @@ def imprimir(venta_id):
     return render_template('factura.html', venta=v)
 
 if __name__ == '__main__':
-    # Usamos el puerto que Render nos asigne, o el 8000 por defecto
+    # Configuración de puerto dinámica para Render
     port = int(os.environ.get('PORT', 8000))
     app.run(host='0.0.0.0', port=port, debug=False)
