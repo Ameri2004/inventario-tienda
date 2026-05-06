@@ -5,14 +5,22 @@ import os
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN DE BASE DE DATOS ---
-# Prioriza la URL de Render (DATABASE_URL), si no existe usa la local de Bolivia
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-    'DATABASE_URL', 
-    'postgresql://postgres:orly123@localhost:5432/tienda_uab_v3'
+# --- CONFIGURACIÓN DE SEGURIDAD Y SESIÓN ---
+app.secret_key = 'clave_uab_sistemas_2026' # Clave para cifrar las sesiones
+app.config.update(
+    SESSION_COOKIE_SECURE=True,    # Obligatorio para HTTPS (Render usa SSL)
+    SESSION_COOKIE_SAMESITE='Lax', # Evita que el navegador bloquee la cookie de sesión
 )
+
+# --- CONFIGURACIÓN DE BASE DE DATOS ---
+uri = os.environ.get('DATABASE_URL', 'postgresql://postgres:orly123@localhost:5432/tienda_uab_v3')
+
+# Corrección para compatibilidad de SQLAlchemy con Render/Heroku
+if uri.startswith("postgres://"):
+    uri = uri.replace("postgres://", "postgresql://", 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.secret_key = 'clave_secreta_orly_2026' 
 
 db = SQLAlchemy(app)
 
@@ -42,20 +50,20 @@ class Venta(db.Model):
     total = db.Column(db.Numeric(10, 2), nullable=False)
     cliente_nombre = db.Column(db.String(150))
 
-# --- INICIALIZACIÓN AUTOMÁTICA DE LA BASE DE DATOS ---
+# --- INICIALIZACIÓN CON LOGS DETALLADOS ---
 with app.app_context():
     db.create_all()
-    # Verificamos si el admin existe para crearlo en la nube
-    admin_check = Usuario.query.filter_by(username='admin').first()
+    # Verifica el usuario que tú definiste (IverPerez)
+    admin_check = Usuario.query.filter_by(username='IverPerez').first()
     if not admin_check:
-        db.session.add(Usuario(username='admin', password='orly123'))
+        db.session.add(Usuario(username='IverPerez', password='123456789'))
         db.session.commit()
-        print(">>> Usuario admin creado correctamente en la base de datos.")
+        print(">>> [DB] Usuario IverPerez creado por primera vez.")
     else:
-        print(">>> El usuario admin ya existe, listo para loguear.")
+        print(f">>> [DB] El usuario {admin_check.username} ya existe en la base de datos.")
 
 # ─────────────────────────────────────────
-#  RUTAS DE ACCESO (LOGIN)
+#  RUTAS DE ACCESO (LOGIN MEJORADO)
 # ─────────────────────────────────────────
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -63,13 +71,20 @@ def login():
     if request.method == 'POST':
         u = request.form.get('username')
         p = request.form.get('password')
-        user = Usuario.query.filter_by(username=u, password=p).first()
-        if user:
+        
+        # Buscamos al usuario en la base de datos
+        user = Usuario.query.filter_by(username=u).first()
+        
+        if user and user.password == p:
+            session.permanent = True # La sesión no se borra al cerrar el navegador
             session['user_id'] = user.id
             session['username'] = user.username
+            print(f">>> [LOGIN SUCCESS] Acceso concedido a: {u}")
             return redirect(url_for('index'))
         else:
+            print(f">>> [LOGIN FAILED] Intento fallido con usuario: {u}")
             flash('Usuario o contraseña incorrectos', 'danger')
+            
     return render_template('login.html')
 
 @app.route('/logout')
@@ -84,6 +99,7 @@ def logout():
 @app.route('/')
 def index():
     if 'user_id' not in session:
+        print(">>> [AUTH] Intento de acceso sin sesión activa. Redirigiendo al Login.")
         return redirect(url_for('login'))
     
     productos = Producto.query.order_by(Producto.nombre).all()
@@ -104,9 +120,10 @@ def registrar():
         )
         db.session.add(nuevo)
         db.session.commit()
+        flash('Producto registrado con éxito', 'success')
     except Exception as e:
         db.session.rollback()
-        flash('Error al registrar: El código ya existe o datos inválidos', 'danger')
+        flash('Error: El código ya existe o datos inválidos', 'danger')
     return redirect(url_for('index'))
 
 @app.route('/eliminar_producto/<int:id>', methods=['POST'])
@@ -124,6 +141,5 @@ def imprimir(venta_id):
     return render_template('factura.html', venta=v)
 
 if __name__ == '__main__':
-    # Configuración de puerto dinámica para Render
     port = int(os.environ.get('PORT', 8000))
     app.run(host='0.0.0.0', port=port, debug=False)
