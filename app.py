@@ -45,19 +45,17 @@ class Venta(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     fecha = db.Column(db.DateTime, default=datetime.now)
     producto_nombre = db.Column(db.String(150), nullable=False)
-    cantidad = db.Column(db.Integer, nullable=False, server_default='1') # Campo nuevo
+    cantidad = db.Column(db.Integer, nullable=False, server_default='1')
     total = db.Column(db.Numeric(10, 2), nullable=False)
     cliente_nombre = db.Column(db.String(150))
 
 # --- INICIALIZACIÓN CON PARCHE DE MIGRACIÓN ---
 with app.app_context():
-    # Este bloque soluciona el Error 500 añadiendo la columna faltante en Render
     try:
         db.session.execute(db.text('ALTER TABLE ventas ADD COLUMN IF NOT EXISTS cantidad INTEGER DEFAULT 1;'))
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        print(f">>> Aviso de migración: {e}")
 
     db.create_all()
     
@@ -66,7 +64,6 @@ with app.app_context():
     if not admin_check:
         db.session.add(Usuario(username='IverPerez', password='123456789'))
         db.session.commit()
-        print(">>> [DB] Usuario IverPerez listo.")
 
 # ─────────────────────────────────────────
 #  RUTAS DE ACCESO
@@ -92,7 +89,7 @@ def logout():
     return redirect(url_for('login'))
 
 # ─────────────────────────────────────────
-#  RUTAS PRINCIPALES
+#  RUTAS DEL SISTEMA
 # ─────────────────────────────────────────
 
 @app.route('/')
@@ -106,8 +103,9 @@ def index():
     
     return render_template('index.html', productos=productos, ventas=ventas, gran_total=gran_total)
 
-@app.route('/registrar_producto', methods=['POST'])
-def registrar_producto():
+# Mantenemos el nombre 'registrar' para que tu HTML actual funcione
+@app.route('/registrar', methods=['POST'])
+def registrar():
     if 'user_id' not in session: return redirect(url_for('login'))
     nuevo = Producto(
         codigo=request.form.get('codigo'),
@@ -117,7 +115,7 @@ def registrar_producto():
     )
     db.session.add(nuevo)
     db.session.commit()
-    flash('Producto registrado', 'success')
+    flash('Producto registrado con éxito', 'success')
     return redirect(url_for('index'))
 
 @app.route('/vender', methods=['POST'])
