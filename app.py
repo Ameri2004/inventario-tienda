@@ -45,22 +45,31 @@ class Venta(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     fecha = db.Column(db.DateTime, default=datetime.now)
     producto_nombre = db.Column(db.String(150), nullable=False)
-    cantidad = db.Column(db.Integer, nullable=False)
+    cantidad = db.Column(db.Integer, nullable=False, server_default='1') # Campo nuevo
     total = db.Column(db.Numeric(10, 2), nullable=False)
     cliente_nombre = db.Column(db.String(150))
 
-# --- INICIALIZACIÓN DE LA BASE DE DATOS ---
+# --- INICIALIZACIÓN CON PARCHE DE MIGRACIÓN ---
 with app.app_context():
+    # Este bloque soluciona el Error 500 añadiendo la columna faltante en Render
+    try:
+        db.session.execute(db.text('ALTER TABLE ventas ADD COLUMN IF NOT EXISTS cantidad INTEGER DEFAULT 1;'))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f">>> Aviso de migración: {e}")
+
     db.create_all()
+    
     # Aseguramos que tu usuario IverPerez exista
     admin_check = Usuario.query.filter_by(username='IverPerez').first()
     if not admin_check:
         db.session.add(Usuario(username='IverPerez', password='123456789'))
         db.session.commit()
-        print(">>> [DB] Usuario IverPerez creado.")
+        print(">>> [DB] Usuario IverPerez listo.")
 
 # ─────────────────────────────────────────
-#  RUTAS DE AUTENTICACIÓN
+#  RUTAS DE ACCESO
 # ─────────────────────────────────────────
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -74,8 +83,7 @@ def login():
             session['user_id'] = user.id
             session['username'] = user.username
             return redirect(url_for('index'))
-        else:
-            flash('Usuario o contraseña incorrectos', 'danger')
+        flash('Credenciales incorrectas', 'danger')
     return render_template('login.html')
 
 @app.route('/logout')
@@ -84,7 +92,7 @@ def logout():
     return redirect(url_for('login'))
 
 # ─────────────────────────────────────────
-#  RUTAS DEL SISTEMA (PRODUCTOS Y VENTAS)
+#  RUTAS PRINCIPALES
 # ─────────────────────────────────────────
 
 @app.route('/')
@@ -109,7 +117,7 @@ def registrar_producto():
     )
     db.session.add(nuevo)
     db.session.commit()
-    flash('Producto registrado correctamente', 'success')
+    flash('Producto registrado', 'success')
     return redirect(url_for('index'))
 
 @app.route('/vender', methods=['POST'])
@@ -123,14 +131,11 @@ def vender():
     prod = Producto.query.get(producto_id)
     
     if prod and prod.stock_unidades >= cantidad_a_vender:
-        # Lógica: precio por unidad = precio_docena / 12
         precio_unitario = float(prod.precio_docena) / 12
         total_venta = precio_unitario * cantidad_a_vender
         
-        # 1. Descontar del stock
         prod.stock_unidades -= cantidad_a_vender
         
-        # 2. Registrar la venta
         nueva_venta = Venta(
             producto_nombre=prod.nombre,
             cantidad=cantidad_a_vender,
@@ -140,9 +145,9 @@ def vender():
         
         db.session.add(nueva_venta)
         db.session.commit()
-        flash(f'Venta exitosa: {prod.nombre} x{cantidad_a_vender}', 'success')
+        flash(f'Venta realizada: {prod.nombre}', 'success')
     else:
-        flash('Error: Stock insuficiente para realizar la venta', 'danger')
+        flash('Stock insuficiente', 'danger')
         
     return redirect(url_for('index'))
 
@@ -156,4 +161,4 @@ def eliminar_producto(id):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port)
