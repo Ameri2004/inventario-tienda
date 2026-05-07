@@ -5,25 +5,21 @@ import os
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN DE SEGURIDAD Y SESIÓN ---
+# --- CONFIGURACIÓN DE SEGURIDAD ---
 app.secret_key = 'clave_uab_sistemas_2026'
-app.config.update(
-    SESSION_COOKIE_SECURE=True,    
-    SESSION_COOKIE_SAMESITE='Lax', 
-)
+app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE='Lax')
 
-# --- CONFIGURACIÓN DE BASE DE DATOS (POSTGRESQL) ---
+# --- BASE DE DATOS ---
 uri = os.environ.get('DATABASE_URL', 'postgresql://postgres:orly123@localhost:5432/tienda_uab_v3')
 if uri.startswith("postgres://"):
     uri = uri.replace("postgres://", "postgresql://", 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
 db = SQLAlchemy(app)
 
 # ─────────────────────────────────────────
-#  MODELOS DE BASE DE DATOS
+#  MODELOS (Originales + Tabla de Detalles)
 # ─────────────────────────────────────────
 
 class Usuario(db.Model):
@@ -44,29 +40,27 @@ class Venta(db.Model):
     __tablename__ = 'ventas'
     id = db.Column(db.Integer, primary_key=True)
     fecha = db.Column(db.DateTime, default=datetime.now)
-    producto_nombre = db.Column(db.String(150), nullable=False)
-    cantidad = db.Column(db.Integer, nullable=False, server_default='1')
-    total = db.Column(db.Numeric(10, 2), nullable=False)
     cliente_nombre = db.Column(db.String(150))
+    total_general = db.Column(db.Numeric(10, 2), nullable=False)
+    detalles = db.relationship('DetalleVenta', backref='venta_padre', lazy=True)
 
-# --- INICIALIZACIÓN CON PARCHE DE MIGRACIÓN ---
+class DetalleVenta(db.Model):
+    __tablename__ = 'detalles_venta'
+    id = db.Column(db.Integer, primary_key=True)
+    venta_id = db.Column(db.Integer, db.ForeignKey('ventas.id'), nullable=False)
+    producto_nombre = db.Column(db.String(150), nullable=False)
+    cantidad = db.Column(db.Integer, nullable=False)
+    subtotal = db.Column(db.Numeric(10, 2), nullable=False)
+
+# --- INICIALIZACIÓN ---
 with app.app_context():
-    try:
-        db.session.execute(db.text('ALTER TABLE ventas ADD COLUMN IF NOT EXISTS cantidad INTEGER DEFAULT 1;'))
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-
     db.create_all()
-    
-    # Aseguramos que tu usuario IverPerez exista
-    admin_check = Usuario.query.filter_by(username='IverPerez').first()
-    if not admin_check:
+    if not Usuario.query.filter_by(username='IverPerez').first():
         db.session.add(Usuario(username='IverPerez', password='123456789'))
         db.session.commit()
 
 # ─────────────────────────────────────────
-#  RUTAS DE ACCESO
+#  RUTAS DE SIEMPRE (SIN CAMBIOS)
 # ─────────────────────────────────────────
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -88,22 +82,18 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ─────────────────────────────────────────
-#  RUTAS DEL SISTEMA
-# ─────────────────────────────────────────
-
 @app.route('/')
 def index():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    
+    if 'user_id' not in session: return redirect(url_for('login'))
     productos = Producto.query.order_by(Producto.nombre).all()
     ventas = Venta.query.order_by(Venta.id.desc()).all()
-    gran_total = sum(float(v.total) for v in ventas)
     
-    return render_template('index.html', productos=productos, ventas=ventas, gran_total=gran_total)
+    # Manejo del carrito
+    carrito = session.get('carrito', [])
+    total_carrito = sum(item['subtotal'] for item in carrito)
+    
+    return render_template('index.html', productos=productos, ventas=ventas, carrito=carrito, total_carrito=total_carrito)
 
-# Mantenemos el nombre 'registrar' para que tu HTML actual funcione
 @app.route('/registrar', methods=['POST'])
 def registrar():
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -115,46 +105,66 @@ def registrar():
     )
     db.session.add(nuevo)
     db.session.commit()
-    flash('Producto registrado con éxito', 'success')
     return redirect(url_for('index'))
 
-@app.route('/vender', methods=['POST'])
-def vender():
-    if 'user_id' not in session: return redirect(url_for('login'))
+# ─────────────────────────────────────────
+#  NUEVAS FUNCIONES (AÑADIDAS)
+# ─────────────────────────────────────────
+
+@app.route('/agregar_al_carrito', methods=['POST'])
+def agregar_al_carrito():
+    prod_id = request.form.get('producto_id')
+    cant = int(request.form.get('cantidad', 1))
+    prod = Producto.query.get(prod_id)
     
-    producto_id = request.form.get('producto_id')
-    cantidad_a_vender = int(request.form.get('cantidad', 1))
-    cliente = request.form.get('cliente', 'Consumidor Final')
-    
-    prod = Producto.query.get(producto_id)
-    
-    if prod and prod.stock_unidades >= cantidad_a_vender:
-        precio_unitario = float(prod.precio_docena) / 12
-        total_venta = precio_unitario * cantidad_a_vender
+    if prod and prod.stock_unidades >= cant:
+        precio_u = float(prod.precio_docena) / 12
+        sub = precio_u * cant
         
-        prod.stock_unidades -= cantidad_a_vender
-        
-        nueva_venta = Venta(
-            producto_nombre=prod.nombre,
-            cantidad=cantidad_a_vender,
-            total=total_venta,
-            cliente_nombre=cliente
-        )
-        
-        db.session.add(nueva_venta)
-        db.session.commit()
-        flash(f'Venta realizada: {prod.nombre}', 'success')
+        carrito = session.get('carrito', [])
+        carrito.append({
+            'id': prod.id,
+            'nombre': prod.nombre,
+            'cantidad': cant,
+            'subtotal': sub
+        })
+        session['carrito'] = carrito
+        flash(f'{prod.nombre} añadido', 'info')
     else:
-        flash('Stock insuficiente', 'danger')
-        
+        flash('Stock insuficiente', 'warning')
     return redirect(url_for('index'))
 
-@app.route('/eliminar_producto/<int:id>', methods=['POST'])
-def eliminar_producto(id):
-    if 'user_id' not in session: return redirect(url_for('login'))
-    p = Producto.query.get_or_404(id)
-    db.session.delete(p)
+@app.route('/finalizar_venta', methods=['POST'])
+def finalizar_venta():
+    carrito = session.get('carrito', [])
+    if not carrito: return redirect(url_for('index'))
+    
+    cliente = request.form.get('cliente', 'Consumidor Final')
+    total_v = sum(item['subtotal'] for item in carrito)
+    
+    nueva_venta = Venta(cliente_nombre=cliente, total_general=total_v)
+    db.session.add(nueva_venta)
+    db.session.flush()
+    
+    for item in carrito:
+        p = Producto.query.get(item['id'])
+        p.stock_unidades -= item['cantidad']
+        detalle = DetalleVenta(
+            venta_id=nueva_venta.id,
+            producto_nombre=item['nombre'],
+            cantidad=item['cantidad'],
+            subtotal=item['subtotal']
+        )
+        db.session.add(detalle)
+    
     db.session.commit()
+    session.pop('carrito', None)
+    flash('Venta registrada con éxito', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/limpiar_carrito')
+def limpiar_carrito():
+    session.pop('carrito', None)
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
