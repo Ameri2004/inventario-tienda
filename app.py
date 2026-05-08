@@ -18,7 +18,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 # ─────────────────────────────────────────
-#  MODELOS (Estructura Multicliente Actualizada)
+#  MODELOS (Estructura Multicliente)
 # ─────────────────────────────────────────
 
 class Usuario(db.Model):
@@ -51,23 +51,25 @@ class DetalleVenta(db.Model):
     cantidad = db.Column(db.Integer, nullable=False)
     subtotal = db.Column(db.Numeric(10, 2), nullable=False)
 
-# --- INICIALIZACIÓN AUTOMÁTICA (REPARA EL ERROR 500) ---
+# --- INICIALIZACIÓN CRÍTICA (ESTO ELIMINA EL ERROR 500) ---
 with app.app_context():
-    # Este bloque fuerza la creación de las nuevas tablas si la estructura cambió
     try:
+        # Intentamos crear lo nuevo. Si falla por conflicto de tablas viejas, reiniciamos.
         db.create_all()
-    except Exception:
-        # Si hay error de estructura, limpiamos y re-creamos (solo ocurre una vez)
+        print(">>> [DB] Tablas verificadas/creadas con éxito.")
+    except Exception as e:
+        print(f">>> [DB] Conflicto detectado: {e}. Reiniciando estructura...")
         db.session.rollback()
-        db.drop_all()
-        db.create_all()
+        db.drop_all() # Borra tablas viejas que causan el Error 500
+        db.create_all() # Crea las nuevas con soporte para carrito
+        print(">>> [DB] Estructura reiniciada correctamente.")
     
     if not Usuario.query.filter_by(username='IverPerez').first():
         db.session.add(Usuario(username='IverPerez', password='123456789'))
         db.session.commit()
 
 # ─────────────────────────────────────────
-#  RUTAS (Manteniendo tus nombres originales)
+#  RUTAS
 # ─────────────────────────────────────────
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -95,24 +97,30 @@ def index():
     productos = Producto.query.order_by(Producto.nombre).all()
     ventas = Venta.query.order_by(Venta.id.desc()).all()
     carrito = session.get('carrito', [])
+    # Convertimos a float para evitar errores de cálculo en la vista
     total_carrito = sum(float(item['subtotal']) for item in carrito)
     return render_template('index.html', productos=productos, ventas=ventas, carrito=carrito, total_carrito=total_carrito)
 
 @app.route('/registrar', methods=['POST'])
 def registrar():
     if 'user_id' not in session: return redirect(url_for('login'))
-    nuevo = Producto(
-        codigo=request.form.get('codigo'),
-        nombre=request.form.get('nombre'),
-        precio_docena=float(request.form.get('precio')),
-        stock_unidades=int(request.form.get('stock'))
-    )
-    db.session.add(nuevo)
-    db.session.commit()
+    try:
+        nuevo = Producto(
+            codigo=request.form.get('codigo'),
+            nombre=request.form.get('nombre'),
+            precio_docena=float(request.form.get('precio')),
+            stock_unidades=int(request.form.get('stock'))
+        )
+        db.session.add(nuevo)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash('Error al registrar producto', 'danger')
     return redirect(url_for('index'))
 
 @app.route('/agregar_al_carrito', methods=['POST'])
 def agregar_al_carrito():
+    if 'user_id' not in session: return redirect(url_for('login'))
     prod_id = request.form.get('producto_id')
     cant = int(request.form.get('cantidad', 1))
     prod = Producto.query.get(prod_id)
@@ -121,14 +129,17 @@ def agregar_al_carrito():
         carrito = session.get('carrito', [])
         carrito.append({'id': prod.id, 'nombre': prod.nombre, 'cantidad': cant, 'subtotal': sub})
         session['carrito'] = carrito
+        flash(f'{prod.nombre} añadido al carrito', 'success')
     else:
         flash('Stock insuficiente', 'warning')
     return redirect(url_for('index'))
 
 @app.route('/finalizar_venta', methods=['POST'])
 def finalizar_venta():
+    if 'user_id' not in session: return redirect(url_for('login'))
     carrito = session.get('carrito', [])
     if not carrito: return redirect(url_for('index'))
+    
     cliente = request.form.get('cliente', 'Consumidor Final')
     total_v = sum(float(item['subtotal']) for item in carrito)
     
@@ -139,10 +150,16 @@ def finalizar_venta():
     for item in carrito:
         p = Producto.query.get(item['id'])
         p.stock_unidades -= item['cantidad']
-        db.session.add(DetalleVenta(venta_id=nueva_v.id, producto_nombre=item['nombre'], cantidad=item['cantidad'], subtotal=item['subtotal']))
+        db.session.add(DetalleVenta(
+            venta_id=nueva_v.id, 
+            producto_nombre=item['nombre'], 
+            cantidad=item['cantidad'], 
+            subtotal=item['subtotal']
+        ))
     
     db.session.commit()
     session.pop('carrito', None)
+    flash('Venta realizada con éxito', 'success')
     return redirect(url_for('index'))
 
 @app.route('/limpiar_carrito')
