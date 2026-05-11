@@ -1,554 +1,271 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
-    <title>Inventario | TIENDA PRO-SOFT</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Inventario</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <style>
-        body {
-            font-family: 'Poppins', sans-serif;
-            background: #f0f4f8;
-            min-height: 100vh;
-        }
-
-        /* ── Navbar ── */
-        .navbar {
-            background: linear-gradient(-45deg, #4facfe, #00f2fe, #43e97b, #38f9d7);
-            background-size: 400% 400%;
-            animation: gradientBG 15s ease infinite;
-        }
-        @keyframes gradientBG {
-            0%   { background-position: 0% 50%; }
-            50%  { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        .navbar-brand { font-weight: 700; color: #fff !important; font-size: 1.3rem; }
-        .nav-user     { color: #fff; font-size: .85rem; }
-
-        /* ── Cards ── */
-        .card {
-            border: none;
-            border-radius: 16px;
-            box-shadow: 0 4px 16px rgba(0,0,0,.08);
-        }
-        .card-header {
-            border-radius: 16px 16px 0 0 !important;
-            font-weight: 600;
-        }
-
-        /* ── Tabla ── */
-        .table th {
-            font-size: .78rem;
-            text-transform: uppercase;
-            letter-spacing: .4px;
-            color: #6b7280;
-        }
-        .table td { vertical-align: middle; font-size: .88rem; }
-
-        /* ── Stock ── */
-        .stock-bajo { color: #dc2626; font-weight: 600; }
-        .stock-ok   { color: #16a34a; font-weight: 600; }
-
-        /* ── Carrito ── */
-        .sticky-carrito { position: sticky; top: 76px; }
-        .carrito-item {
-            background: #fff;
-            border: 1px solid #e5e7eb;
-            border-radius: 10px;
-            padding: 8px 12px;
-            margin-bottom: 6px;
-            font-size: .85rem;
-        }
-        .carrito-item .precio { font-weight: 700; color: #1a56db; }
-        .total-box {
-            background: linear-gradient(135deg, #43e97b, #38f9d7);
-            border-radius: 12px;
-            padding: 12px 16px;
-            text-align: center;
-            font-weight: 700;
-            font-size: 1.1rem;
-            color: #065f46;
-        }
-
-        /* ── Alertas auto-close ── */
-        .alert { font-size: .88rem; }
+        /* Transiciones suaves y efectos hover */
+        body { transition: background-color 0.3s, color 0.3s; }
+        .card { border-radius: 12px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 15px rgba(0,0,0,0.1); }
+        .nav-pills .nav-link { border-radius: 8px; margin-right: 5px; color: var(--bs-body-color); font-weight: 500;}
+        .nav-pills .nav-link.active { background-color: #0d6efd; color: white; }
+        .btn-icon { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+        
+        /* Paleta modo claro/oscuro (Automático por Bootstrap) */
+        [data-bs-theme="dark"] .card { background-color: #1e1e1e; }
+        [data-bs-theme="dark"] body { background-color: #121212; }
     </style>
 </head>
-<body>
+<body class="bg-body-tertiary">
 
-<!-- ═══ NAVBAR ═══ -->
-<nav class="navbar navbar-expand-lg shadow-sm sticky-top">
+<nav class="navbar navbar-expand-lg bg-body text-body shadow-sm mb-4">
     <div class="container-fluid px-4">
-        <span class="navbar-brand">
-            <i class="bi bi-shop me-2"></i>TIENDA PRO-SOFT
-        </span>
-        <div class="d-flex align-items-center gap-3">
-            <span class="nav-user">
-                <i class="bi bi-person-circle me-1"></i>{{ session.get('username','') }}
-            </span>
-            <!-- Botón carrito con badge -->
-            <a href="#carrito" class="btn btn-light btn-sm fw-semibold position-relative">
-                <i class="bi bi-cart3"></i> Carrito
-                {% if carrito %}
-                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
-                      style="font-size:.6rem;">
-                    {{ carrito|length }}
-                </span>
-                {% endif %}
-            </a>
-            <a href="/logout" class="btn btn-outline-light btn-sm fw-semibold">
-                <i class="bi bi-box-arrow-right"></i> Salir
-            </a>
+        <a class="navbar-brand fw-bold text-primary" href="#"><i class="fa-solid fa-box-open me-2"></i>Gestión de Tienda</a>
+        <div class="d-flex align-items-center">
+            <span class="me-3 fw-semibold"><i class="fa-solid fa-user-circle me-1"></i> {{ session['username'] }}</span>
+            <button class="btn btn-outline-secondary btn-sm me-3" id="theme-toggle" onclick="toggleTheme()">
+                <i class="fa-solid fa-moon"></i>
+            </button>
+            <a href="/logout" class="btn btn-danger btn-sm"><i class="fa-solid fa-right-from-bracket"></i> Salir</a>
         </div>
     </div>
 </nav>
 
-<!-- ═══ ALERTAS ═══ -->
-<div class="container-fluid px-4 mt-3">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            {% for cat, msg in messages %}
-            <div class="alert alert-{{ cat }} alert-dismissible fade show py-2" role="alert">
-                {{ msg }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
-</div>
+<div class="container-fluid px-4">
+    <ul class="nav nav-pills mb-4 bg-body p-2 rounded shadow-sm" id="pills-tab" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="pos-tab" data-bs-toggle="pill" data-bs-target="#pos" type="button"><i class="fa-solid fa-cash-register me-2"></i>Terminal de Venta</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="inventario-tab" data-bs-toggle="pill" data-bs-target="#inventario" type="button"><i class="fa-solid fa-boxes-stacked me-2"></i>Gestión de Stock</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="historial-tab" data-bs-toggle="pill" data-bs-target="#historial" type="button"><i class="fa-solid fa-clock-rotate-left me-2"></i>Historial</button>
+        </li>
+    </ul>
 
-<!-- ═══ CONTENIDO ═══ -->
-<div class="container-fluid px-4 pb-5">
-<div class="row g-4">
-
-    <!-- ══ COLUMNA IZQUIERDA ══ -->
-    <div class="col-lg-8">
-
-        <!-- ── Registrar Producto ── -->
-        <div class="card mb-4">
-            <div class="card-header bg-dark text-white">
-                <i class="bi bi-plus-circle me-2"></i>Registrar Producto
-            </div>
-            <div class="card-body">
-                <form action="/registrar" method="POST">
-                    <div class="row g-2">
-                        <div class="col-md-2">
-                            <label class="form-label small fw-semibold">Código</label>
-                            <input type="text" name="codigo" class="form-control form-control-sm"
-                                   placeholder="P001" required>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Nombre</label>
-                            <input type="text" name="nombre" class="form-control form-control-sm"
-                                   placeholder="Nombre del producto" required>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label small fw-semibold">Precio Docena (Bs.)</label>
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text">Bs.</span>
-                                <input type="number" step="0.01" name="precio"
-                                       class="form-control" placeholder="0.00" required>
-                            </div>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label small fw-semibold">Stock</label>
-                            <input type="number" name="stock" class="form-control form-control-sm"
-                                   placeholder="0" value="0" min="0" required>
-                        </div>
-                        <div class="col-md-1 d-flex align-items-end">
-                            <button type="submit" class="btn btn-dark btn-sm w-100">
-                                <i class="bi bi-plus-lg"></i>
-                            </button>
+    <div class="tab-content" id="pills-tabContent">
+        
+        <div class="tab-pane fade show active" id="pos" role="tabpanel">
+            <div class="row g-4">
+                <div class="col-lg-8">
+                    <div class="card p-3 h-100">
+                        <h5 class="mb-3 border-bottom pb-2 text-primary"><i class="fa-solid fa-tags me-2"></i>Productos Disponibles</h5>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Producto</th>
+                                        <th>Precio (Docena)</th>
+                                        <th>Stock</th>
+                                        <th class="text-end">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for producto in productos %}
+                                    <tr>
+                                        <td class="fw-semibold">{{ producto.nombre }}</td>
+                                        <td>Bs. {{ "{:.2f}".format(producto.precio_docena) }}</td>
+                                        <td>
+                                            <span class="badge {{ 'bg-success' if producto.stock_unidades > 5 else 'bg-warning text-dark' }} rounded-pill">
+                                                {{ producto.stock_unidades }} un.
+                                            </span>
+                                        </td>
+                                        <td class="text-end">
+                                            <form action="/agregar_al_carrito" method="POST" class="d-flex justify-content-end align-items-center">
+                                                <input type="hidden" name="producto_id" value="{{ producto.id }}">
+                                                <input type="number" name="cantidad" value="1" min="1" max="{{ producto.stock_unidades }}" class="form-control form-control-sm me-2" style="width: 70px;">
+                                                <button type="submit" class="btn btn-primary btn-sm rounded-pill px-3"><i class="fa-solid fa-cart-plus"></i></button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- ── Inventario ── -->
-        <div class="card mb-4">
-            <div class="card-header" style="background:linear-gradient(90deg,#4facfe,#00f2fe); color:#fff;">
-                <i class="bi bi-table me-2"></i>Inventario de Productos
-                <span class="badge bg-light text-dark float-end">{{ productos|length }} producto(s)</span>
-            </div>
-            <div class="card-body p-0">
-                {% if productos %}
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Código</th>
-                                <th>Nombre</th>
-                                <th class="text-end">P. Docena</th>
-                                <th class="text-end">P. Unitario</th>
-                                <th class="text-center">Stock</th>
-                                <th class="text-center">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for p in productos %}
-                            <tr>
-                                <td><code>{{ p.codigo }}</code></td>
-                                <td>{{ p.nombre }}</td>
-                                <td class="text-end">Bs. {{ "%.2f"|format(p.precio_docena|float) }}</td>
-                                <td class="text-end">Bs. {{ "%.2f"|format(p.precio_unitario) }}</td>
-                                <td class="text-center">
-                                    {% if p.stock_unidades <= 5 %}
-                                        <span class="stock-bajo">
-                                            <i class="bi bi-exclamation-triangle-fill"></i>
-                                            {{ p.stock_unidades }}
-                                        </span>
-                                    {% else %}
-                                        <span class="stock-ok">{{ p.stock_unidades }}</span>
-                                    {% endif %}
-                                </td>
-                                <td class="text-center">
-                                    {% if p.stock_unidades > 0 %}
-                                    <button class="btn btn-success btn-sm"
-                                            data-bs-toggle="modal"
-                                            data-bs-target="#modal{{ p.id }}">
-                                        <i class="bi bi-cart-plus"></i> Añadir
-                                    </button>
-                                    {% else %}
-                                    <span class="badge bg-secondary">Sin stock</span>
-                                    {% endif %}
-                                    <form action="/eliminar_producto/{{ p.id }}" method="POST"
-                                          class="d-inline"
-                                          onsubmit="return confirm('¿Eliminar {{ p.nombre }}?')">
-                                        <button class="btn btn-outline-danger btn-sm">
-                                            <i class="bi bi-trash3"></i>
-                                        </button>
-                                    </form>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
                 </div>
-                {% else %}
-                <div class="text-center py-5 text-muted">
-                    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                    No hay productos registrados.
-                </div>
-                {% endif %}
-            </div>
-        </div>
 
-        <!-- ── Historial de Ventas ── -->
-        <div class="card">
-            <div class="card-header" style="background:linear-gradient(90deg,#43e97b,#38f9d7); color:#065f46;">
-                <i class="bi bi-receipt me-2"></i>Últimas Ventas
-            </div>
-            <div class="card-body p-0">
-                {% if ventas %}
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>#</th>
-                                <th>Fecha</th>
-                                <th>Cliente</th>
-                                <th>Productos</th>
-                                <th class="text-end">Total</th>
-                                <th class="text-center">Comprobante</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for v in ventas %}
-                            <tr>
-                                <td><span class="badge bg-secondary">{{ v.id }}</span></td>
-                                <td class="small text-muted">{{ v.fecha.strftime('%d/%m/%Y %H:%M') }}</td>
-                                <td>{{ v.cliente_nombre }}</td>
-                                <td>
-                                    {% for d in v.detalles %}
-                                    <span class="badge bg-light text-dark border">
-                                        {{ d.nombre_producto }} ×{{ d.cantidad }}
-                                    </span>
-                                    {% endfor %}
-                                </td>
-                                <td class="text-end fw-bold text-success">
-                                    Bs. {{ "%.2f"|format(v.total_general|float) }}
-                                </td>
-                                <td class="text-center">
-                                    <a href="{{ url_for('ver_venta', venta_id=v.id) }}"
-                                       class="btn btn-outline-secondary btn-sm" title="Ver comprobante">
-                                        <i class="bi bi-eye"></i>
-                                    </a>
-                                    <a href="{{ url_for('factura', venta_id=v.id) }}"
-                                       class="btn btn-outline-primary btn-sm" title="Imprimir factura"
-                                       target="_blank">
-                                        <i class="bi bi-printer"></i>
-                                    </a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <div class="text-center py-4 text-muted">
-                    <i class="bi bi-clipboard-x fs-1 d-block mb-2"></i>
-                    Aún no hay ventas.
-                </div>
-                {% endif %}
-            </div>
-        </div>
-
-    </div><!-- /col-lg-8 -->
-
-    <!-- ══ CARRITO (columna derecha) ══ -->
-    <div class="col-lg-4" id="carrito">
-        <div class="sticky-carrito">
-            <div class="card">
-                <div class="card-header bg-warning text-dark d-flex justify-content-between">
-                    <span><i class="bi bi-cart3 me-2"></i>Carrito de Compras</span>
-                    {% if carrito %}
-                    <span class="badge bg-dark">{{ carrito|length }}</span>
-                    {% endif %}
-                </div>
-                <div class="card-body">
-
-                    {% if carrito %}
-                        {% for item in carrito %}
-                        <div class="carrito-item d-flex justify-content-between align-items-start">
-                            <div>
-                                <div class="fw-semibold">{{ item.nombre }}</div>
-                                <div class="text-muted small">
-                                    {{ item.cantidad }} × Bs. {{ "%.2f"|format(item.precio_unit) }}
+                <div class="col-lg-4">
+                    <div class="card p-4 h-100 border-primary border-2">
+                        <h4 class="text-primary mb-3"><i class="fa-solid fa-cart-shopping me-2"></i>Venta Actual</h4>
+                        
+                        {% if carrito %}
+                            <div class="table-responsive mb-3" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-sm align-middle">
+                                    <tbody>
+                                        {% for item in carrito %}
+                                        <tr>
+                                            <td><strong>{{ item.nombre }}</strong><br><small class="text-muted">x{{ item.cantidad }}</small></td>
+                                            <td class="text-end fw-semibold text-success">Bs. {{ "{:.2f}".format(item.subtotal) }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="bg-body-secondary p-3 rounded mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0 text-body-secondary">Total:</h5>
+                                    <h3 class="mb-0 text-primary fw-bold">Bs. {{ "{:.2f}".format(total_carrito) }}</h3>
                                 </div>
                             </div>
-                            <div class="d-flex flex-column align-items-end gap-1">
-                                <span class="precio">Bs. {{ "%.2f"|format(item.subtotal) }}</span>
-                                <form action="/quitar_del_carrito/{{ item.id }}" method="POST">
-                                    <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1">
-                                        <i class="bi bi-x-lg" style="font-size:.65rem;"></i>
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                        {% endfor %}
 
-                        <div class="total-box mt-3">
-                            TOTAL: Bs. {{ "%.2f"|format(total_carrito) }}
-                        </div>
-
-                        <form action="/finalizar_venta" method="POST" class="mt-3">
-                            <label class="form-label small fw-semibold">Nombre del Cliente</label>
-                            <input type="text" name="cliente" class="form-control form-control-sm mb-2"
-                                   placeholder="Consumidor Final">
-                            <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-success btn-sm fw-semibold">
-                                    <i class="bi bi-check2-circle me-1"></i>Cobrar / Finalizar Venta
-                                </button>
+                            <form action="/finalizar_venta" method="POST" class="mt-auto">
+                                <input type="text" name="cliente" class="form-control form-control-lg mb-3" placeholder="Nombre del Cliente" required>
+                                <button type="submit" class="btn btn-primary btn-lg w-100 fw-bold shadow-sm mb-2"><i class="fa-solid fa-check-circle me-2"></i>Cobrar Venta</button>
+                                <a href="/limpiar_carrito" class="btn btn-outline-danger w-100"><i class="fa-solid fa-trash me-2"></i>Vaciar Carrito</a>
+                            </form>
+                        {% else %}
+                            <div class="text-center text-muted my-5">
+                                <i class="fa-solid fa-basket-shopping fa-3x mb-3 opacity-50"></i>
+                                <h5>El carrito está vacío</h5>
+                                <p class="small">Añade productos desde la lista.</p>
                             </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="inventario" role="tabpanel">
+            <div class="row justify-content-center">
+                <div class="col-md-6">
+                    <div class="card p-4">
+                        <h5 class="mb-4 text-primary"><i class="fa-solid fa-circle-plus me-2"></i>Registrar Nuevo Producto</h5>
+                        <form action="/registrar" method="POST">
+                            <div class="form-floating mb-3">
+                                <input type="text" name="codigo" class="form-control" id="floatingCodigo" placeholder="Código" required>
+                                <label for="floatingCodigo">Código de Producto</label>
+                            </div>
+                            <div class="form-floating mb-3">
+                                <input type="text" name="nombre" class="form-control" id="floatingNombre" placeholder="Nombre" required>
+                                <label for="floatingNombre">Nombre</label>
+                            </div>
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="number" step="0.01" name="precio" class="form-control" id="floatingPrecio" placeholder="Precio" required>
+                                        <label for="floatingPrecio">Precio Docena (Bs.)</label>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-floating mb-4">
+                                        <input type="number" name="stock" class="form-control" id="floatingStock" placeholder="Stock" required>
+                                        <label for="floatingStock">Stock (Unidades)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold"><i class="fa-solid fa-save me-2"></i>Guardar en Inventario</button>
                         </form>
-
-                        <div class="d-grid mt-2">
-                            <a href="/limpiar_carrito" class="btn btn-outline-secondary btn-sm"
-                               onclick="return confirm('¿Vaciar el carrito?')">
-                                <i class="bi bi-trash me-1"></i>Vaciar Carrito
-                            </a>
-                        </div>
-
-                    {% else %}
-                        <div class="text-center py-4 text-muted">
-                            <i class="bi bi-cart-x fs-1 d-block mb-2"></i>
-                            Carrito vacío.<br>
-                            <small>Usa <strong>Añadir</strong> en el inventario.</small>
-                        </div>
-                    {% endif %}
-
-                </div>
-            </div>
-
-            {% if ventas %}
-            <div class="card mt-3">
-                <div class="card-body py-2">
-                    <div class="d-flex justify-content-between small text-muted">
-                        <span>Ventas registradas:</span>
-                        <strong>{{ ventas|length }}</strong>
-                    </div>
-                    <div class="d-flex justify-content-between small text-muted mt-1">
-                        <span>Última venta:</span>
-                        <strong class="text-success">
-                            Bs. {{ "%.2f"|format(ventas[0].total_general|float) }}
-                        </strong>
                     </div>
                 </div>
             </div>
-            {% endif %}
-
         </div>
-    </div><!-- /col-lg-4 -->
 
-</div><!-- /row -->
-</div><!-- /container -->
-
-
-<!-- ═══ MODALES: AGREGAR AL CARRITO ═══ -->
-{% for p in productos %}
-{% if p.stock_unidades > 0 %}
-<div class="modal fade" id="modal{{ p.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-sm modal-dialog-centered">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header bg-success text-white py-2">
-                <h6 class="modal-title">
-                    <i class="bi bi-cart-plus me-1"></i>Agregar al Carrito
-                </h6>
-                <button type="button" class="btn-close btn-close-white"
-                        data-bs-dismiss="modal"></button>
+        <div class="tab-pane fade" id="historial" role="tabpanel">
+            <div class="card p-4">
+                <h5 class="mb-4 text-primary"><i class="fa-solid fa-list me-2"></i>Registro de Ventas Realizadas</h5>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>N° Venta</th>
+                                <th>Fecha y Hora</th>
+                                <th>Cliente</th>
+                                <th>Total</th>
+                                <th class="text-end">Opciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for venta in ventas %}
+                            <tr>
+                                <td><span class="badge bg-secondary">#{{ venta.id }}</span></td>
+                                <td>{{ venta.fecha.strftime('%d/%m/%Y - %H:%M') }}</td>
+                                <td class="fw-semibold">{{ venta.cliente_nombre }}</td>
+                                <td class="text-success fw-bold">Bs. {{ "{:.2f}".format(venta.total_general) }}</td>
+                                <td class="text-end">
+                                    <div class="dropdown">
+                                        <button class="btn btn-light btn-icon border shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="fa-solid fa-ellipsis-vertical"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end shadow">
+                                            <li><a class="dropdown-item" href="/venta/{{ venta.id }}"><i class="fa-solid fa-eye text-primary me-2"></i>Ver Comprobante</a></li>
+                                            <li><a class="dropdown-item" href="/factura/{{ venta.id }}"><i class="fa-solid fa-print text-secondary me-2"></i>Imprimir Factura</a></li>
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
-            <form action="/agregar_al_carrito" method="POST">
-                <input type="hidden" name="producto_id" value="{{ p.id }}">
-                <!-- cantidad final en unidades, la calcula el JS -->
-                <input type="hidden" name="cantidad" id="cantFinal_{{ p.id }}" value="12">
-                <div class="modal-body">
-                    <p class="fw-semibold mb-1">{{ p.nombre }}</p>
-
-                    <!-- Precios de referencia -->
-                    <div class="d-flex gap-2 mb-3">
-                        <span class="badge bg-dark">
-                            Docena: Bs. {{ "%.2f"|format(p.precio_docena|float) }}
-                        </span>
-                        <span class="badge bg-secondary">
-                            ½ Docena: Bs. {{ "%.2f"|format((p.precio_docena|float) / 2) }}
-                        </span>
-                    </div>
-
-                    <!-- Selector docena / media docena -->
-                    <label class="form-label small fw-semibold">Tipo de venta</label>
-                    <div class="btn-group w-100 mb-3" role="group" id="tipoVenta_{{ p.id }}">
-                        <input type="radio" class="btn-check" name="tipoVenta_{{ p.id }}"
-                               id="docena_{{ p.id }}" value="12" checked
-                               onchange="actualizarModal({{ p.id }}, {{ p.precio_docena|float }}, {{ p.stock_unidades }})">
-                        <label class="btn btn-outline-success btn-sm" for="docena_{{ p.id }}">
-                            Docena (12 uds)
-                        </label>
-
-                        <input type="radio" class="btn-check" name="tipoVenta_{{ p.id }}"
-                               id="media_{{ p.id }}" value="6"
-                               onchange="actualizarModal({{ p.id }}, {{ p.precio_docena|float }}, {{ p.stock_unidades }})">
-                        <label class="btn btn-outline-warning btn-sm" for="media_{{ p.id }}">
-                            ½ Docena (6 uds)
-                        </label>
-                    </div>
-
-                    <!-- Cantidad de docenas/medias docenas -->
-                    <label class="form-label small fw-semibold">
-                        Cantidad
-                        <span class="text-muted fw-normal" id="labelCant_{{ p.id }}">(de docenas)</span>
-                    </label>
-                    <input type="number"
-                           id="numLotes_{{ p.id }}"
-                           class="form-control form-control-sm mb-2"
-                           value="1" min="1"
-                           oninput="actualizarModal({{ p.id }}, {{ p.precio_docena|float }}, {{ p.stock_unidades }})"
-                           required>
-
-                    <!-- Resumen calculado -->
-                    <div class="rounded p-2 mt-1" style="background:#f0fdf4; border:1px solid #bbf7d0;">
-                        <div class="d-flex justify-content-between small">
-                            <span class="text-muted">Unidades totales:</span>
-                            <strong id="resUds_{{ p.id }}">12 uds</strong>
-                        </div>
-                        <div class="d-flex justify-content-between small mt-1">
-                            <span class="text-muted">Stock disponible:</span>
-                            <strong>{{ p.stock_unidades }} uds</strong>
-                        </div>
-                        <div class="d-flex justify-content-between mt-1">
-                            <span class="fw-semibold">Total a pagar:</span>
-                            <strong class="text-success" id="resTotal_{{ p.id }}">
-                                Bs. {{ "%.2f"|format(p.precio_docena|float) }}
-                            </strong>
-                        </div>
-                    </div>
-
-                    <!-- Aviso de stock insuficiente -->
-                    <div id="avisoStock_{{ p.id }}"
-                         class="alert alert-danger py-1 px-2 mt-2 small d-none">
-                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                        Stock insuficiente.
-                    </div>
-                </div>
-                <div class="modal-footer py-2">
-                    <button type="button" class="btn btn-outline-secondary btn-sm"
-                            data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success btn-sm"
-                            id="btnAgregar_{{ p.id }}">
-                        <i class="bi bi-cart-plus me-1"></i>Agregar
-                    </button>
-                </div>
-            </form>
         </div>
+        
     </div>
 </div>
-{% endif %}
-{% endfor %}
-
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
-    // ── Lógica del modal: docena / media docena ──────────────────────────
-    function actualizarModal(pid, precioDocena, stockMax) {
-        // Cuántas unidades por lote (12 = docena, 6 = media)
-        const loteRadio = document.querySelector(`input[name="tipoVenta_${pid}"]:checked`);
-        const udsPorLote = parseInt(loteRadio ? loteRadio.value : 12);
-
-        const numLotesInput = document.getElementById(`numLotes_${pid}`);
-        const numLotes = parseInt(numLotesInput.value) || 1;
-
-        const totalUds   = udsPorLote * numLotes;
-        const precioLote = udsPorLote === 12 ? precioDocena : precioDocena / 2;
-        const totalPago  = precioLote * numLotes;
-
-        // Actualizar etiqueta de tipo
-        const label = document.getElementById(`labelCant_${pid}`);
-        label.textContent = udsPorLote === 12 ? '(de docenas)' : '(de medias docenas)';
-
-        // Actualizar resumen
-        document.getElementById(`resUds_${pid}`).textContent   = totalUds + ' uds';
-        document.getElementById(`resTotal_${pid}`).textContent = 'Bs. ' + totalPago.toFixed(2);
-
-        // Validar stock
-        const aviso  = document.getElementById(`avisoStock_${pid}`);
-        const btnAg  = document.getElementById(`btnAgregar_${pid}`);
-        if (totalUds > stockMax) {
-            aviso.classList.remove('d-none');
-            btnAg.disabled = true;
+    function toggleTheme() {
+        const html = document.documentElement;
+        const currentTheme = html.getAttribute('data-bs-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-bs-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        
+        // Cambiar el ícono del botón
+        const btnIcon = document.querySelector('#theme-toggle i');
+        if(newTheme === 'dark') {
+            btnIcon.classList.replace('fa-moon', 'fa-sun');
         } else {
-            aviso.classList.add('d-none');
-            btnAg.disabled = false;
+            btnIcon.classList.replace('fa-sun', 'fa-moon');
         }
-
-        // Escribir unidades finales en el campo hidden que recibe Flask
-        document.getElementById(`cantFinal_${pid}`).value = totalUds;
     }
 
-    // Inicializar cada modal cuando se abre (para que los valores sean frescos)
-    document.addEventListener('show.bs.modal', function(e) {
-        const pid = e.target.id.replace('modal', '');
-        if (!pid) return;
-        const precioEl = e.target.querySelector('[data-precio]');
-        // Re-ejecutar cálculo al abrir
-        const precioDocena = parseFloat(
-            e.target.querySelector('.badge.bg-dark').textContent.replace(/[^0-9.]/g, '')
-        );
-        const stockEl = e.target.querySelector('strong[id^="resUds_"]');
-        // Simplemente re-disparar la función con los datos del template ya impresos
-        // El onchange/oninput ya tienen los valores hardcodeados desde Jinja
+    // Cargar preferencia guardada
+    document.addEventListener('DOMContentLoaded', () => {
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-bs-theme', savedTheme);
+        if(savedTheme === 'dark') {
+            document.querySelector('#theme-toggle i').classList.replace('fa-moon', 'fa-sun');
+        }
     });
-
-    // Auto-cerrar alertas a los 4 segundos
-    setTimeout(() => {
-        document.querySelectorAll('.alert:not(#avisoStock_\\w+)').forEach(el => {
-            if (!el.id.startsWith('avisoStock')) {
-                try { bootstrap.Alert.getOrCreateInstance(el).close(); } catch(e) {}
-            }
-        });
-    }, 4000);
 </script>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <script>
+            {% for category, message in messages %}
+                // Mapear las categorías de Flask (success, danger) a los iconos de SweetAlert
+                let iconType = 'info';
+                if('{{ category }}' === 'success') iconType = 'success';
+                if('{{ category }}' === 'danger' || '{{ category }}' === 'error') iconType = 'error';
+                if('{{ category }}' === 'warning') iconType = 'warning';
+
+                Swal.fire({
+                    toast: true,
+                    position: 'top-end',
+                    icon: iconType,
+                    title: '{{ message }}',
+                    showConfirmButton: false,
+                    timer: 3500,
+                    timerProgressBar: true,
+                    background: document.documentElement.getAttribute('data-bs-theme') === 'dark' ? '#2d2d2d' : '#ffffff',
+                    color: document.documentElement.getAttribute('data-bs-theme') === 'dark' ? '#ffffff' : '#000000'
+                });
+            {% endfor %}
+        </script>
+    {% endif %}
+{% endwith %}
 
 </body>
 </html>
