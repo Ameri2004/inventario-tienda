@@ -2,43 +2,88 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Comprobante | TIENDA PRO-SOFT</title>
+    <title>Factura #{{ venta.id }} | TIENDA PRO-SOFT</title>
     <style>
-        body { 
-            font-family: 'Courier New', Courier, monospace; 
-            width: 300px; 
-            margin: 20px auto; 
-            padding: 15px; 
-            border: 1px solid #000; 
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            width: 300px;
+            margin: 20px auto;
+            padding: 15px;
+            border: 1px solid #000;
         }
         .text-center { text-align: center; }
-        .divider { border-top: 1px dashed #000; margin: 10px 0; }
-        .total { 
-            font-size: 1.3em; 
-            font-weight: bold; 
-            margin-top: 10px; 
-            border: 1px solid #000; 
-            padding: 5px; 
+        .text-right  { text-align: right; }
+        .divider      { border-top: 1px dashed #000; margin: 10px 0; }
+        table         { width: 100%; font-size: .82em; border-collapse: collapse; }
+        th, td        { padding: 2px 4px; }
+        th            { border-bottom: 1px solid #000; }
+        .subtotal-col { text-align: right; }
+        .total {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-top: 10px;
+            border: 1px solid #000;
+            padding: 6px;
+            text-align: center;
         }
         @media print { .no-print { display: none; } }
     </style>
 </head>
 <body onload="window.print()">
+
     <div class="text-center">
-        <h3>TIENDA PRO-SOFT</h3>
-        <p>Bolivia</p>
+        <h3 style="margin:0;">TIENDA PRO-SOFT</h3>
+        <p style="margin:2px 0;">Bolivia</p>
     </div>
+
     <div class="divider"></div>
-    <p><strong>Nro:</strong> #{{ venta.id }}</p>
-    <p><strong>Fecha:</strong> {{ venta.fecha.strftime('%d/%m/%Y %H:%M') }}</p>
-    <p><strong>Cliente:</strong> {{ venta.cliente_nombre or 'General' }}</p>
+
+    <p style="margin:3px 0;"><strong>Nro:</strong> #{{ venta.id }}</p>
+    <p style="margin:3px 0;"><strong>Fecha:</strong> {{ venta.fecha.strftime('%d/%m/%Y %H:%M') }}</p>
+    <p style="margin:3px 0;"><strong>Cliente:</strong> {{ venta.cliente_nombre or 'Consumidor Final' }}</p>
+
     <div class="divider"></div>
-    <p><strong>Detalle:</strong> {{ venta.producto_nombre }}</p>
-    <div class="text-center total">
-        TOTAL: {{ "%.2f"|format(venta.total|float) }} Bs.
+
+    <!-- Detalle de cada producto -->
+    <table>
+        <thead>
+            <tr>
+                <th>Producto</th>
+                <th style="text-align:center;">Cant</th>
+                <th style="text-align:right;">Precio</th>
+                <th style="text-align:right;">Subt.</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for d in venta.detalles %}
+            <tr>
+                <td>{{ d.nombre_producto }}</td>
+                <td style="text-align:center;">{{ d.cantidad }}</td>
+                <td style="text-align:right;">{{ "%.2f"|format(d.precio_unit|float) }}</td>
+                <td style="text-align:right;">{{ "%.2f"|format(d.subtotal|float) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="divider"></div>
+
+    <div class="total">
+        TOTAL: Bs. {{ "%.2f"|format(venta.total_general|float) }}
     </div>
-    <div class="text-center no-print">
-        <button onclick="window.print()" style="margin-top:20px; padding: 10px; cursor:pointer;">Imprimir Factura</button>
+
+    <div class="text-center" style="margin-top:10px; font-size:.8em;">
+        ¡Gracias por su compra!
     </div>
+
+    <div class="text-center no-print" style="margin-top:16px;">
+        <button onclick="window.print()" style="padding:8px 16px; cursor:pointer;">
+            Imprimir Factura
+        </button>
+        <a href="/" style="display:block; margin-top:8px; font-size:.85em;">
+            ← Volver al Panel
+        </a>
+    </div>
+
 </body>
 </html>

@@ -1,180 +1,163 @@
-import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text, inspect
 from datetime import datetime
-from werkzeug.security import generate_password_hash, check_password_hash
+import os
 
 app = Flask(__name__)
 
-# ─── CONFIGURACIÓN SEGURA ────────────────────────────────────────────────────
-app.secret_key = os.environ.get('SECRET_KEY', 'clave-secreta-local-dev')
+# ─────────────────────────────────────────
+#  CONFIGURACIÓN  (idéntica a la que tenías)
+# ─────────────────────────────────────────
+app.secret_key = 'clave_uab_sistemas_2026'
+app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE='Lax')
 
-# Fix para Render: postgres:// → postgresql://
-database_url = os.environ.get('DATABASE_URL', 'sqlite:///inventario.db')
-if database_url.startswith('postgres://'):
-    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+uri = os.environ.get('DATABASE_URL', 'postgresql://postgres:orly123@localhost:5432/tienda_uab_v3')
+if uri.startswith("postgres://"):
+    uri = uri.replace("postgres://", "postgresql://", 1)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_DATABASE_URI'] = uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Sesión segura para producción en Render
-app.config['SESSION_COOKIE_SECURE'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-
 db = SQLAlchemy(app)
 
 
-# ─── MODELOS ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────
+#  MODELOS
+# ─────────────────────────────────────────
 
 class Usuario(db.Model):
     __tablename__ = 'usuarios'
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(256), nullable=False)
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+    id       = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    password = db.Column(db.String(100), nullable=False)
 
 
 class Producto(db.Model):
     __tablename__ = 'productos'
-    id = db.Column(db.Integer, primary_key=True)
-    codigo = db.Column(db.String(50), unique=True, nullable=False)
-    nombre = db.Column(db.String(120), nullable=False)
-    precio_docena = db.Column(db.Float, nullable=False)
+    id             = db.Column(db.Integer, primary_key=True)
+    codigo         = db.Column(db.String(50), unique=True, nullable=False)
+    nombre         = db.Column(db.String(150), nullable=False)
+    precio_docena  = db.Column(db.Numeric(10, 2), nullable=False)
     stock_unidades = db.Column(db.Integer, default=0)
 
     @property
     def precio_unitario(self):
-        return round(self.precio_docena / 12, 2)
+        """Precio por unidad = precio docena / 12"""
+        return round(float(self.precio_docena) / 12, 2)
 
 
 class Venta(db.Model):
+    """
+    MISMOS nombres de columna que ya tenías (id, fecha, cliente_nombre, total_general).
+    Se agrega la relación con DetalleVenta.
+    """
     __tablename__ = 'ventas'
-    id = db.Column(db.Integer, primary_key=True)
-    cliente = db.Column(db.String(120), nullable=False, default='Cliente General')
-    total = db.Column(db.Float, nullable=False, default=0.0)
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
-    detalles = db.relationship('DetalleVenta', backref='venta', lazy=True, cascade='all, delete-orphan')
+    id             = db.Column(db.Integer, primary_key=True)
+    fecha          = db.Column(db.DateTime, default=datetime.now)
+    cliente_nombre = db.Column(db.String(150), default='Consumidor Final')
+    total_general  = db.Column(db.Numeric(10, 2), nullable=False)
+    detalles       = db.relationship('DetalleVenta', backref='venta',
+                                     lazy=True, cascade='all, delete-orphan')
 
 
 class DetalleVenta(db.Model):
+    """Tabla NUEVA – guarda cada producto de una venta."""
     __tablename__ = 'detalle_ventas'
-    id = db.Column(db.Integer, primary_key=True)
-    venta_id = db.Column(db.Integer, db.ForeignKey('ventas.id'), nullable=False)
-    producto_id = db.Column(db.Integer, db.ForeignKey('productos.id'), nullable=False)
-    nombre_producto = db.Column(db.String(120), nullable=False)
-    cantidad = db.Column(db.Integer, nullable=False)
-    precio_unitario = db.Column(db.Float, nullable=False)
-    subtotal = db.Column(db.Float, nullable=False)
-    producto = db.relationship('Producto', backref='detalles_venta')
+    id              = db.Column(db.Integer, primary_key=True)
+    venta_id        = db.Column(db.Integer, db.ForeignKey('ventas.id'), nullable=False)
+    producto_id     = db.Column(db.Integer, db.ForeignKey('productos.id'), nullable=False)
+    nombre_producto = db.Column(db.String(150), nullable=False)
+    cantidad        = db.Column(db.Integer, nullable=False)
+    precio_unit     = db.Column(db.Numeric(10, 2), nullable=False)
+    subtotal        = db.Column(db.Numeric(10, 2), nullable=False)
+    producto        = db.relationship('Producto')
 
 
-# ─── INICIALIZACIÓN SEGURA DE LA BASE DE DATOS ───────────────────────────────
-# Esta función maneja la discrepancia entre la estructura antigua y la nueva.
-# Estrategia: detectar si las columnas nuevas existen; si no, hacer drop y recrear.
+# ─────────────────────────────────────────
+#  PARCHE ANTI-ERROR 500
+#  Compara la estructura real de la BD con la esperada.
+#  Si detecta la estructura VIEJA, elimina SOLO las tablas de ventas
+#  (nunca toca 'productos' ni 'usuarios') y las recrea.
+# ─────────────────────────────────────────
 
 def inicializar_bd():
     with app.app_context():
         inspector = inspect(db.engine)
-        tablas_existentes = inspector.get_table_names()
-        necesita_recrear = False
+        tablas    = inspector.get_table_names()
+        recrear   = False
 
-        # Verificar si la tabla 'ventas' tiene la estructura nueva
-        if 'ventas' in tablas_existentes:
-            columnas_ventas = [c['name'] for c in inspector.get_columns('ventas')]
-            # La nueva estructura requiere las columnas: id, cliente, total, fecha
-            columnas_requeridas = {'id', 'cliente', 'total', 'fecha'}
-            if not columnas_requeridas.issubset(set(columnas_ventas)):
-                necesita_recrear = True
+        # La tabla 'detalle_ventas' no existía en la estructura vieja
+        if 'detalle_ventas' not in tablas:
+            recrear = True
 
-        # Verificar si la tabla 'detalle_ventas' existe
-        if 'detalle_ventas' not in tablas_existentes:
-            necesita_recrear = True
+        # Verificación extra de columnas en 'ventas'
+        if 'ventas' in tablas:
+            cols = {c['name'] for c in inspector.get_columns('ventas')}
+            if not {'id', 'fecha', 'cliente_nombre', 'total_general'}.issubset(cols):
+                recrear = True
 
-        if necesita_recrear:
-            print("⚠️  Estructura antigua detectada. Recreando tablas de ventas...")
+        if recrear:
+            print("⚠️  Estructura antigua detectada → reconstruyendo tablas de ventas…")
             try:
-                # Solo eliminar las tablas de ventas (no productos ni usuarios)
                 with db.engine.connect() as conn:
                     conn.execute(text('DROP TABLE IF EXISTS detalle_ventas CASCADE'))
                     conn.execute(text('DROP TABLE IF EXISTS ventas CASCADE'))
                     conn.commit()
-                print("✅ Tablas antiguas eliminadas correctamente.")
+                print("✅ Tablas antiguas eliminadas.")
             except Exception as e:
-                print(f"⚠️  No se pudieron eliminar tablas: {e}")
+                print(f"   (aviso): {e}")
 
-        # Crear todas las tablas que falten (no afecta las que ya existen)
+        # Crea todas las tablas faltantes (no toca las existentes)
         db.create_all()
-        print("✅ Tablas verificadas/creadas correctamente.")
+        print("✅ Base de datos lista.")
 
-        # Crear usuario por defecto si no existe
+        # Usuario por defecto (igual que antes)
         if not Usuario.query.filter_by(username='IverPerez').first():
-            admin = Usuario(username='IverPerez')
-            admin.set_password('admin123')
-            db.session.add(admin)
+            db.session.add(Usuario(username='IverPerez', password='123456789'))
             db.session.commit()
             print("✅ Usuario IverPerez creado.")
 
 
-# Ejecutar inicialización al arrancar
 inicializar_bd()
 
 
-# ─── DECORADOR DE AUTENTICACIÓN ───────────────────────────────────────────────
-
-def login_requerido(f):
-    from functools import wraps
-    @wraps(f)
-    def decorado(*args, **kwargs):
-        if 'usuario_id' not in session:
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorado
-
-
-# ─── RUTAS DE AUTENTICACIÓN ───────────────────────────────────────────────────
+# ─────────────────────────────────────────
+#  AUTENTICACIÓN
+# ─────────────────────────────────────────
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        usuario = Usuario.query.filter_by(username=username).first()
-        if usuario and usuario.check_password(password):
-            session.permanent = True
-            session['usuario_id'] = usuario.id
-            session['username'] = usuario.username
-            flash('Sesión iniciada correctamente.', 'success')
+        u    = request.form.get('username')
+        p    = request.form.get('password')
+        user = Usuario.query.filter_by(username=u, password=p).first()
+        if user:
+            session.permanent   = True
+            session['user_id']  = user.id
+            session['username'] = user.username
             return redirect(url_for('index'))
-        flash('Usuario o contraseña incorrectos.', 'danger')
+        flash('Credenciales incorrectas', 'danger')
     return render_template('login.html')
 
 
 @app.route('/logout')
 def logout():
     session.clear()
-    flash('Sesión cerrada.', 'info')
     return redirect(url_for('login'))
 
 
-# ─── RUTA PRINCIPAL ───────────────────────────────────────────────────────────
+# ─────────────────────────────────────────
+#  ÍNDICE PRINCIPAL
+# ─────────────────────────────────────────
 
 @app.route('/')
-@login_requerido
 def index():
-    productos = Producto.query.order_by(Producto.nombre).all()
-    ventas = Venta.query.order_by(Venta.fecha.desc()).limit(20).all()
-    carrito = session.get('carrito', [])
-
-    # Calcular total del carrito
-    total_carrito = sum(item['subtotal'] for item in carrito)
-
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    productos     = Producto.query.order_by(Producto.nombre).all()
+    ventas        = Venta.query.order_by(Venta.id.desc()).all()
+    carrito       = session.get('carrito', [])
+    total_carrito = sum(float(item['subtotal']) for item in carrito)
     return render_template('index.html',
                            productos=productos,
                            ventas=ventas,
@@ -182,195 +165,196 @@ def index():
                            total_carrito=total_carrito)
 
 
-# ─── RUTAS DE PRODUCTOS ───────────────────────────────────────────────────────
+# ─────────────────────────────────────────
+#  PRODUCTOS
+# ─────────────────────────────────────────
 
-@app.route('/agregar_producto', methods=['POST'])
-@login_requerido
-def agregar_producto():
+@app.route('/registrar', methods=['POST'])
+def registrar():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     codigo = request.form.get('codigo', '').strip()
     nombre = request.form.get('nombre', '').strip()
-    precio_docena = request.form.get('precio_docena', 0)
-    stock_unidades = request.form.get('stock_unidades', 0)
 
-    if not codigo or not nombre:
-        flash('Código y nombre son obligatorios.', 'danger')
-        return redirect(url_for('index'))
-
-    try:
-        precio_docena = float(precio_docena)
-        stock_unidades = int(stock_unidades)
-    except ValueError:
-        flash('Precio y stock deben ser numéricos.', 'danger')
-        return redirect(url_for('index'))
-
-    # Verificar si el código ya existe
-    existente = Producto.query.filter_by(codigo=codigo).first()
-    if existente:
+    if Producto.query.filter_by(codigo=codigo).first():
         flash(f'El código "{codigo}" ya existe.', 'warning')
         return redirect(url_for('index'))
 
-    producto = Producto(
-        codigo=codigo,
-        nombre=nombre,
-        precio_docena=precio_docena,
-        stock_unidades=stock_unidades
+    nuevo = Producto(
+        codigo         = codigo,
+        nombre         = nombre,
+        precio_docena  = float(request.form.get('precio', 0)),
+        stock_unidades = int(request.form.get('stock', 0))
     )
-    db.session.add(producto)
+    db.session.add(nuevo)
     db.session.commit()
-    flash(f'Producto "{nombre}" registrado correctamente.', 'success')
+    flash(f'Producto "{nombre}" registrado.', 'success')
     return redirect(url_for('index'))
 
 
-@app.route('/eliminar_producto/<int:producto_id>', methods=['POST'])
-@login_requerido
-def eliminar_producto(producto_id):
-    producto = Producto.query.get_or_404(producto_id)
-    db.session.delete(producto)
+@app.route('/eliminar_producto/<int:pid>', methods=['POST'])
+def eliminar_producto(pid):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    p = Producto.query.get_or_404(pid)
+    db.session.delete(p)
     db.session.commit()
-    flash(f'Producto "{producto.nombre}" eliminado.', 'info')
+    flash(f'Producto "{p.nombre}" eliminado.', 'info')
     return redirect(url_for('index'))
 
 
-# ─── RUTAS DEL CARRITO ────────────────────────────────────────────────────────
+# ─────────────────────────────────────────
+#  CARRITO  (almacenado en session del navegador, sin tocar la BD)
+# ─────────────────────────────────────────
 
-@app.route('/agregar_al_carrito/<int:producto_id>', methods=['POST'])
-@login_requerido
-def agregar_al_carrito(producto_id):
-    producto = Producto.query.get_or_404(producto_id)
-    cantidad = int(request.form.get('cantidad', 1))
+@app.route('/agregar_al_carrito', methods=['POST'])
+def agregar_al_carrito():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
 
-    if cantidad <= 0:
+    prod_id = int(request.form.get('producto_id'))
+    cant    = int(request.form.get('cantidad', 1))
+    prod    = Producto.query.get(prod_id)
+
+    if not prod:
+        flash('Producto no encontrado.', 'danger')
+        return redirect(url_for('index'))
+    if cant <= 0:
         flash('La cantidad debe ser mayor a 0.', 'warning')
         return redirect(url_for('index'))
-
-    if cantidad > producto.stock_unidades:
-        flash(f'Stock insuficiente. Disponible: {producto.stock_unidades} unidades.', 'danger')
+    if cant > prod.stock_unidades:
+        flash(f'Stock insuficiente. Disponible: {prod.stock_unidades} uds.', 'danger')
         return redirect(url_for('index'))
 
     carrito = session.get('carrito', [])
 
-    # Verificar si el producto ya está en el carrito
-    encontrado = False
+    # Si el producto ya está, acumula la cantidad
     for item in carrito:
-        if item['producto_id'] == producto_id:
-            nueva_cantidad = item['cantidad'] + cantidad
-            if nueva_cantidad > producto.stock_unidades:
-                flash(f'No hay suficiente stock. Disponible: {producto.stock_unidades} unidades.', 'danger')
+        if item['id'] == prod_id:
+            nueva_cant = item['cantidad'] + cant
+            if nueva_cant > prod.stock_unidades:
+                flash(f'Stock insuficiente. Disponible: {prod.stock_unidades} uds.', 'danger')
                 return redirect(url_for('index'))
-            item['cantidad'] = nueva_cantidad
-            item['subtotal'] = round(nueva_cantidad * producto.precio_unitario, 2)
-            encontrado = True
-            break
+            item['cantidad'] = nueva_cant
+            item['subtotal'] = round(prod.precio_unitario * nueva_cant, 2)
+            session['carrito'] = carrito
+            session.modified   = True
+            flash(f'"{prod.nombre}" actualizado en el carrito.', 'success')
+            return redirect(url_for('index'))
 
-    if not encontrado:
-        carrito.append({
-            'producto_id': producto_id,
-            'nombre': producto.nombre,
-            'codigo': producto.codigo,
-            'precio_unitario': producto.precio_unitario,
-            'cantidad': cantidad,
-            'subtotal': round(cantidad * producto.precio_unitario, 2)
-        })
-
+    carrito.append({
+        'id':         prod_id,
+        'nombre':     prod.nombre,
+        'cantidad':   cant,
+        'precio_unit': prod.precio_unitario,
+        'subtotal':   round(prod.precio_unitario * cant, 2)
+    })
     session['carrito'] = carrito
-    session.modified = True
-    flash(f'"{producto.nombre}" agregado al carrito.', 'success')
+    session.modified   = True
+    flash(f'"{prod.nombre}" agregado al carrito.', 'success')
     return redirect(url_for('index'))
 
 
-@app.route('/quitar_del_carrito/<int:producto_id>', methods=['POST'])
-@login_requerido
-def quitar_del_carrito(producto_id):
+@app.route('/quitar_del_carrito/<int:prod_id>', methods=['POST'])
+def quitar_del_carrito(prod_id):
     carrito = session.get('carrito', [])
-    carrito = [item for item in carrito if item['producto_id'] != producto_id]
-    session['carrito'] = carrito
-    session.modified = True
-    flash('Producto removido del carrito.', 'info')
+    session['carrito'] = [i for i in carrito if i['id'] != prod_id]
+    session.modified   = True
+    flash('Producto quitado del carrito.', 'info')
     return redirect(url_for('index'))
 
 
-@app.route('/vaciar_carrito', methods=['POST'])
-@login_requerido
-def vaciar_carrito():
-    session['carrito'] = []
-    session.modified = True
-    flash('Carrito vaciado.', 'info')
+@app.route('/limpiar_carrito')
+def limpiar_carrito():
+    """Ruta GET que ya tenías — sigue funcionando igual."""
+    session.pop('carrito', None)
     return redirect(url_for('index'))
 
+
+# ─────────────────────────────────────────
+#  FINALIZAR VENTA
+# ─────────────────────────────────────────
 
 @app.route('/finalizar_venta', methods=['POST'])
-@login_requerido
 def finalizar_venta():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
     carrito = session.get('carrito', [])
     if not carrito:
         flash('El carrito está vacío.', 'warning')
         return redirect(url_for('index'))
 
-    cliente = request.form.get('cliente', 'Cliente General').strip()
-    if not cliente:
-        cliente = 'Cliente General'
+    cliente = request.form.get('cliente', 'Consumidor Final').strip() or 'Consumidor Final'
+    total_v = round(sum(float(i['subtotal']) for i in carrito), 2)
 
     try:
-        total_general = 0.0
-        nueva_venta = Venta(cliente=cliente, total=0.0)
-        db.session.add(nueva_venta)
-        db.session.flush()  # Obtener el ID de la venta antes del commit
+        nueva_v = Venta(cliente_nombre=cliente, total_general=total_v)
+        db.session.add(nueva_v)
+        db.session.flush()   # necesario para obtener nueva_v.id
 
         for item in carrito:
-            producto = Producto.query.get(item['producto_id'])
-            if not producto:
-                raise ValueError(f"Producto ID {item['producto_id']} no encontrado.")
-            if item['cantidad'] > producto.stock_unidades:
-                raise ValueError(f"Stock insuficiente para '{producto.nombre}'. "
-                                 f"Disponible: {producto.stock_unidades}, solicitado: {item['cantidad']}.")
+            p = Producto.query.get(item['id'])
+            if not p:
+                raise ValueError(f"Producto ID {item['id']} no encontrado.")
+            if item['cantidad'] > p.stock_unidades:
+                raise ValueError(f"Stock insuficiente para '{p.nombre}'.")
 
-            # Descontar stock
-            producto.stock_unidades -= item['cantidad']
+            p.stock_unidades -= item['cantidad']
 
-            # Crear detalle
-            detalle = DetalleVenta(
-                venta_id=nueva_venta.id,
-                producto_id=producto.id,
-                nombre_producto=producto.nombre,
-                cantidad=item['cantidad'],
-                precio_unitario=item['precio_unitario'],
-                subtotal=item['subtotal']
-            )
-            db.session.add(detalle)
-            total_general += item['subtotal']
+            db.session.add(DetalleVenta(
+                venta_id        = nueva_v.id,
+                producto_id     = p.id,
+                nombre_producto = p.nombre,
+                cantidad        = item['cantidad'],
+                precio_unit     = item['precio_unit'],
+                subtotal        = item['subtotal']
+            ))
 
-        nueva_venta.total = round(total_general, 2)
         db.session.commit()
-
-        # Limpiar carrito
-        session['carrito'] = []
-        session.modified = True
-
-        flash(f'✅ Venta #{nueva_venta.id} registrada por Bs. {nueva_venta.total:.2f}. '
-              f'Cliente: {cliente}', 'success')
+        session.pop('carrito', None)
+        flash(f'✅ Venta #{nueva_v.id} registrada — Total: Bs. {total_v:.2f}', 'success')
+        # Redirige a venta.html (comprobante)
+        return redirect(url_for('ver_venta', venta_id=nueva_v.id))
 
     except ValueError as e:
         db.session.rollback()
-        flash(f'Error al procesar la venta: {str(e)}', 'danger')
+        flash(f'Error: {e}', 'danger')
     except Exception as e:
         db.session.rollback()
-        flash(f'Error inesperado: {str(e)}', 'danger')
+        flash(f'Error inesperado: {e}', 'danger')
 
     return redirect(url_for('index'))
 
 
-# ─── RUTA DE DETALLE DE VENTA ─────────────────────────────────────────────────
+# ─────────────────────────────────────────
+#  COMPROBANTE  →  venta.html
+# ─────────────────────────────────────────
 
 @app.route('/venta/<int:venta_id>')
-@login_requerido
-def detalle_venta(venta_id):
+def ver_venta(venta_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     venta = Venta.query.get_or_404(venta_id)
-    return render_template('detalle_venta.html', venta=venta)
+    return render_template('venta.html', venta=venta)
 
 
-# ─── PUNTO DE ENTRADA ─────────────────────────────────────────────────────────
+# ─────────────────────────────────────────
+#  FACTURA IMPRIMIBLE  →  factura.html
+# ─────────────────────────────────────────
+
+@app.route('/factura/<int:venta_id>')
+def factura(venta_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    venta = Venta.query.get_or_404(venta_id)
+    return render_template('factura.html', venta=venta)
+
+
+# ─────────────────────────────────────────
+#  ARRANQUE
+# ─────────────────────────────────────────
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_ENV') == 'development'
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    port = int(os.environ.get('PORT', 8000))
+    app.run(host='0.0.0.0', port=port)
