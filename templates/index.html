@@ -402,20 +402,81 @@
             </div>
             <form action="/agregar_al_carrito" method="POST">
                 <input type="hidden" name="producto_id" value="{{ p.id }}">
+                <!-- cantidad final en unidades, la calcula el JS -->
+                <input type="hidden" name="cantidad" id="cantFinal_{{ p.id }}" value="12">
                 <div class="modal-body">
                     <p class="fw-semibold mb-1">{{ p.nombre }}</p>
-                    <p class="text-muted small mb-3">
-                        P. unitario: <strong>Bs. {{ "%.2f"|format(p.precio_unitario) }}</strong>
-                        &nbsp;|&nbsp; Stock: <strong>{{ p.stock_unidades }}</strong>
-                    </p>
-                    <label class="form-label small fw-semibold">Cantidad</label>
-                    <input type="number" name="cantidad" class="form-control form-control-sm"
-                           value="1" min="1" max="{{ p.stock_unidades }}" required>
+
+                    <!-- Precios de referencia -->
+                    <div class="d-flex gap-2 mb-3">
+                        <span class="badge bg-dark">
+                            Docena: Bs. {{ "%.2f"|format(p.precio_docena|float) }}
+                        </span>
+                        <span class="badge bg-secondary">
+                            ½ Docena: Bs. {{ "%.2f"|format((p.precio_docena|float) / 2) }}
+                        </span>
+                    </div>
+
+                    <!-- Selector docena / media docena -->
+                    <label class="form-label small fw-semibold">Tipo de venta</label>
+                    <div class="btn-group w-100 mb-3" role="group" id="tipoVenta_{{ p.id }}">
+                        <input type="radio" class="btn-check" name="tipoVenta_{{ p.id }}"
+                               id="docena_{{ p.id }}" value="12" checked
+                               onchange="actualizarModal({{ p.id }}, {{ p.precio_docena|float }}, {{ p.stock_unidades }})">
+                        <label class="btn btn-outline-success btn-sm" for="docena_{{ p.id }}">
+                            Docena (12 uds)
+                        </label>
+
+                        <input type="radio" class="btn-check" name="tipoVenta_{{ p.id }}"
+                               id="media_{{ p.id }}" value="6"
+                               onchange="actualizarModal({{ p.id }}, {{ p.precio_docena|float }}, {{ p.stock_unidades }})">
+                        <label class="btn btn-outline-warning btn-sm" for="media_{{ p.id }}">
+                            ½ Docena (6 uds)
+                        </label>
+                    </div>
+
+                    <!-- Cantidad de docenas/medias docenas -->
+                    <label class="form-label small fw-semibold">
+                        Cantidad
+                        <span class="text-muted fw-normal" id="labelCant_{{ p.id }}">(de docenas)</span>
+                    </label>
+                    <input type="number"
+                           id="numLotes_{{ p.id }}"
+                           class="form-control form-control-sm mb-2"
+                           value="1" min="1"
+                           oninput="actualizarModal({{ p.id }}, {{ p.precio_docena|float }}, {{ p.stock_unidades }})"
+                           required>
+
+                    <!-- Resumen calculado -->
+                    <div class="rounded p-2 mt-1" style="background:#f0fdf4; border:1px solid #bbf7d0;">
+                        <div class="d-flex justify-content-between small">
+                            <span class="text-muted">Unidades totales:</span>
+                            <strong id="resUds_{{ p.id }}">12 uds</strong>
+                        </div>
+                        <div class="d-flex justify-content-between small mt-1">
+                            <span class="text-muted">Stock disponible:</span>
+                            <strong>{{ p.stock_unidades }} uds</strong>
+                        </div>
+                        <div class="d-flex justify-content-between mt-1">
+                            <span class="fw-semibold">Total a pagar:</span>
+                            <strong class="text-success" id="resTotal_{{ p.id }}">
+                                Bs. {{ "%.2f"|format(p.precio_docena|float) }}
+                            </strong>
+                        </div>
+                    </div>
+
+                    <!-- Aviso de stock insuficiente -->
+                    <div id="avisoStock_{{ p.id }}"
+                         class="alert alert-danger py-1 px-2 mt-2 small d-none">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                        Stock insuficiente.
+                    </div>
                 </div>
                 <div class="modal-footer py-2">
                     <button type="button" class="btn btn-outline-secondary btn-sm"
                             data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success btn-sm">
+                    <button type="submit" class="btn btn-success btn-sm"
+                            id="btnAgregar_{{ p.id }}">
                         <i class="bi bi-cart-plus me-1"></i>Agregar
                     </button>
                 </div>
@@ -429,10 +490,62 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+    // ── Lógica del modal: docena / media docena ──────────────────────────
+    function actualizarModal(pid, precioDocena, stockMax) {
+        // Cuántas unidades por lote (12 = docena, 6 = media)
+        const loteRadio = document.querySelector(`input[name="tipoVenta_${pid}"]:checked`);
+        const udsPorLote = parseInt(loteRadio ? loteRadio.value : 12);
+
+        const numLotesInput = document.getElementById(`numLotes_${pid}`);
+        const numLotes = parseInt(numLotesInput.value) || 1;
+
+        const totalUds   = udsPorLote * numLotes;
+        const precioLote = udsPorLote === 12 ? precioDocena : precioDocena / 2;
+        const totalPago  = precioLote * numLotes;
+
+        // Actualizar etiqueta de tipo
+        const label = document.getElementById(`labelCant_${pid}`);
+        label.textContent = udsPorLote === 12 ? '(de docenas)' : '(de medias docenas)';
+
+        // Actualizar resumen
+        document.getElementById(`resUds_${pid}`).textContent   = totalUds + ' uds';
+        document.getElementById(`resTotal_${pid}`).textContent = 'Bs. ' + totalPago.toFixed(2);
+
+        // Validar stock
+        const aviso  = document.getElementById(`avisoStock_${pid}`);
+        const btnAg  = document.getElementById(`btnAgregar_${pid}`);
+        if (totalUds > stockMax) {
+            aviso.classList.remove('d-none');
+            btnAg.disabled = true;
+        } else {
+            aviso.classList.add('d-none');
+            btnAg.disabled = false;
+        }
+
+        // Escribir unidades finales en el campo hidden que recibe Flask
+        document.getElementById(`cantFinal_${pid}`).value = totalUds;
+    }
+
+    // Inicializar cada modal cuando se abre (para que los valores sean frescos)
+    document.addEventListener('show.bs.modal', function(e) {
+        const pid = e.target.id.replace('modal', '');
+        if (!pid) return;
+        const precioEl = e.target.querySelector('[data-precio]');
+        // Re-ejecutar cálculo al abrir
+        const precioDocena = parseFloat(
+            e.target.querySelector('.badge.bg-dark').textContent.replace(/[^0-9.]/g, '')
+        );
+        const stockEl = e.target.querySelector('strong[id^="resUds_"]');
+        // Simplemente re-disparar la función con los datos del template ya impresos
+        // El onchange/oninput ya tienen los valores hardcodeados desde Jinja
+    });
+
     // Auto-cerrar alertas a los 4 segundos
     setTimeout(() => {
-        document.querySelectorAll('.alert').forEach(el => {
-            bootstrap.Alert.getOrCreateInstance(el).close();
+        document.querySelectorAll('.alert:not(#avisoStock_\\w+)').forEach(el => {
+            if (!el.id.startsWith('avisoStock')) {
+                try { bootstrap.Alert.getOrCreateInstance(el).close(); } catch(e) {}
+            }
         });
     }, 4000);
 </script>
